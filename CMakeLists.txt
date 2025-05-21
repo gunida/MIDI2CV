@@ -22,6 +22,7 @@ set(picoVscode ${USERHOME}/.pico-sdk/cmake/pico-vscode.cmake)
 if (EXISTS ${picoVscode})
     include(${picoVscode})
 endif()
+set(PICO_CXX_ENABLE_EXCEPTIONS 1)
 # ====================================================================================
 set(PICO_BOARD pico CACHE STRING "Board type")
 
@@ -47,7 +48,9 @@ pico_enable_stdio_usb(Midi2CV 1)
 # Add the standard library to the build
 target_link_libraries(Midi2CV
         pico_stdlib 
-        hardware_pwm)
+        hardware_pwm
+        pico_multicore
+        )
 
 # Add the standard include files to the build
 target_include_directories(Midi2CV PRIVATE
