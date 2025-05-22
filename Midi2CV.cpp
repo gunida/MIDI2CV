@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <map>
 #include "pico/stdlib.h"
 #include "pico/time.h"
 #include "hardware/pwm.h"
@@ -41,11 +42,18 @@ enum State
     EXIT
 };
 
+static std::map<State, const char *> state_to_string = {
+    {BOOT, "BOOT"},
+    {INIT, "INIT"},
+    {PLAY, "PLAY"},
+    {CONFIG, "CONFIG"},
+    {EXIT, "EXITING"}};
+
 void gpio_callback(uint gpio, uint32_t events);
 void on_uart_rx();
 void setup();
 void midi_config(absolute_time_t prev_time, absolute_time_t current_time);
-void config_btn_listener(absolute_time_t prev_time, absolute_time_t current_time);
+void btn_cfg_listener(absolute_time_t prev_time, absolute_time_t current_time);
 void set_application_state(State state);
 void run();
 unsigned char midi_rx();
@@ -71,7 +79,7 @@ unsigned char midi_channel = 0;
 unsigned int clk_counter = 0;
 
 bool in_config_mode = 0;
-absolute_time_t cfg_button_pressed_time = 0;
+absolute_time_t cfg_button_pressed_time = at_the_end_of_time;
 
 ChannelToPinMapping mapping[16] = {};
 
@@ -103,23 +111,31 @@ void core0_entry()
     while (1)
     {
         prev_time = current_time;
-        current_time = to_ms_since_boot(get_absolute_time());
 
         switch (application_state)
         {
+        case INIT:
+            break;
         case PLAY:
-            config_btn_listener(prev_time, current_time);
+            blink_led(1, 500);
+            btn_cfg_listener(prev_time, current_time);
             break;
         case CONFIG:
             midi_config(prev_time, current_time);
             break;
-        case INIT:
         default:
+            printf("In an invalid state\n");
             break;
         }
 
         if (prev_time != current_time && current_time % 1000 == 0)
-            printf("in core0 loop\n");
+        {
+            printf("core 0 loop - Btn pressed: %llu, Current time: %llu, State: %s\n ",
+                   cfg_button_pressed_time,
+                   current_time,
+                   state_to_string[application_state]);
+        }
+        current_time = to_ms_since_boot(get_absolute_time());
     }
     printf("left the core0 loop\n");
 }
@@ -214,25 +230,23 @@ void setup()
 
 void midi_config(absolute_time_t prev_time, absolute_time_t current_time)
 {
-    if (prev_time != current_time && current_time % 1000 == 0)
-    {
-        printf("In config mode\n ");
-    }
-    blink_led(1, LED_DELAY_MS);
+    blink_led(1, 250);
+
+    if (!is_at_the_end_of_time(cfg_button_pressed_time))
+        set_application_state(PLAY);
 }
 
-void config_btn_listener(absolute_time_t prev_time, absolute_time_t current_time)
+void btn_cfg_listener(absolute_time_t prev_time, absolute_time_t current_time)
 {
-    if (cfg_button_pressed_time > 0 && (current_time - cfg_button_pressed_time) > TIME_IN_MS_TO_ENTER_CONFIG)
-    {
-        set_application_state(CONFIG);
-        cfg_button_pressed_time = 0;
+    if (is_at_the_end_of_time(cfg_button_pressed_time))
         return;
-    }
 
-    if (prev_time != current_time && current_time % 1000 == 0)
+    if ((current_time - cfg_button_pressed_time) > TIME_IN_MS_TO_ENTER_CONFIG)
     {
-        printf("core 0 Btn pressed: %llu, Current time: %llu\n ", cfg_button_pressed_time, current_time);
+        if (application_state == PLAY)
+            set_application_state(CONFIG);
+
+        cfg_button_pressed_time = at_the_end_of_time;
     }
 }
 
@@ -289,18 +303,16 @@ void gpio_callback(uint gpio, uint32_t events)
     printf("GPIO %d %s\n", gpio, event_str);
     if (gpio == CFG_BUTTON_GPIO && events & GPIO_IRQ_EDGE_FALL)
     {
-        if (cfg_button_pressed_time > 0)
-            cfg_button_pressed_time = 0;
-        // printf("gpio_callback%d PRESS\n", gpio);
-        if (application_state == PLAY)
-            cfg_button_pressed_time = to_ms_since_boot(get_absolute_time());
-        if (application_state == CONFIG)
-            set_application_state(PLAY);
+        // // printf("gpio_callback%d PRESS\n", gpio);
+        // if (application_state == PLAY)
+        cfg_button_pressed_time = to_ms_since_boot(get_absolute_time());
+        // if (application_state == CONFIG)
+        //     set_application_state(PLAY);
     }
     else if (gpio == CFG_BUTTON_GPIO && events & GPIO_IRQ_EDGE_RISE)
     {
         // printf("gpio_callback%d RELEASE\n", gpio);
-        cfg_button_pressed_time = 0;
+        cfg_button_pressed_time = at_the_end_of_time;
 
         // if (application_state == CONFIG)
         // {
@@ -330,50 +342,14 @@ unsigned char midi_rx()
 
 void set_application_state(State state)
 {
+
     printf("From State ");
-
-    switch (application_state)
-    {
-    case BOOT:
-        printf("BOOT");
-        break;
-    case INIT:
-        printf("INIT");
-        break;
-    case PLAY:
-        printf("PLAY");
-        break;
-    case CONFIG:
-        printf("CONFIG");
-        break;
-    default:
-        printf("__UNDEFINED__");
-        break;
-    }
-
+    printf(state_to_string[application_state]);
     printf(" to ");
 
     application_state = state;
 
-    switch (application_state)
-    {
-    case BOOT:
-        printf("BOOT");
-        break;
-    case INIT:
-        printf("INIT");
-        break;
-    case PLAY:
-        printf("PLAY");
-        break;
-    case CONFIG:
-        printf("CONFIG");
-        break;
-    default:
-        printf("__UNDEFINED__");
-        break;
-    }
-
+    printf(state_to_string[application_state]);
     printf("\n");
 
     sleep_ms(1);
@@ -451,3 +427,31 @@ void gpio_event_string(char *buf, uint32_t events)
     }
     *buf++ = '\0';
 }
+
+// void state_to_string(char *strOut)
+// {
+//     char *str;
+//     switch (application_state)
+//     {
+//     case BOOT:
+//         str = "BOOT";
+//         break;
+//     case INIT:
+//         str = "INIT";
+//         break;
+//     case PLAY:
+//         str = "PLAY";
+//         break;
+//     case CONFIG:
+//         str = "CONF";
+//         break;
+//     default:
+//         str = "UNDF";
+//         break;
+//     }
+
+//     for (size_t i = 0; i < 5; i++)
+//     {
+//         strOut[i] = str[i];
+//     }
+// }
