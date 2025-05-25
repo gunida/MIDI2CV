@@ -19,9 +19,6 @@
 #define CFG_BUTTON_GPIO 0
 #define LED_DELAY_MS 80
 
-#define FLAG_VALUE1 123
-#define FLAG_VALUE2 321
-
 #define TIME_IN_MS_TO_ENTER_CONFIG 2000
 
 #define DEBOUNCE_DELAY_TIME 5
@@ -51,13 +48,17 @@ static std::map<State, const char *> state_to_string = {
 
 void gpio_callback(uint gpio, uint32_t events);
 void on_uart_rx();
-void setup();
-void midi_config(absolute_time_t prev_time, absolute_time_t current_time);
+int8_t read_uart_rx();
+void uart_clk_handler();
+void core0_setup();
+void midi_config_mode(absolute_time_t prev_time, absolute_time_t current_time);
 void btn_cfg_listener(absolute_time_t prev_time, absolute_time_t current_time);
 void set_application_state(State state);
-void run();
+void midi_msg_handler(uint8_t status, uint8_t data_1, uint8_t data_2);
 unsigned char midi_rx();
 void print_midi_msg(char status, char data_1, char data_2);
+void shift_array(uint8_t *arr);
+void pico_set_led(bool led_on);
 void blink_led(int num_times, int delay_nms);
 void gate_out(int gpio, bool on);
 void note_out(int gpio, int note);
@@ -69,12 +70,6 @@ static char event_str[128];
 static int core0_rx_val = 0, core1_rx_val = 0;
 
 State application_state = BOOT;
-unsigned char status = 0;
-unsigned char data_1 = 0;
-unsigned char data_2 = 0;
-
-unsigned char midi_msg = 0;
-unsigned char midi_channel = 0;
 
 unsigned int clk_counter = 0;
 
@@ -82,24 +77,6 @@ bool in_config_mode = 0;
 absolute_time_t cfg_button_pressed_time = at_the_end_of_time;
 
 ChannelToPinMapping mapping[16] = {};
-
-// void core0_sio_irq()
-// {
-//     // Just record the latest entry
-//     while (multicore_fifo_rvalid())
-//         core0_rx_val = multicore_fifo_pop_blocking();
-
-//     multicore_fifo_clear_irq();
-// }
-
-// void core1_sio_irq()
-// {
-//     // Just record the latest entry
-//     while (multicore_fifo_rvalid())
-//         core1_rx_val = multicore_fifo_pop_blocking();
-
-//     multicore_fifo_clear_irq();
-// }
 
 // Checks for GPIO buttons, config
 void core0_entry()
@@ -114,14 +91,15 @@ void core0_entry()
 
         switch (application_state)
         {
+        case BOOT:
         case INIT:
+            pico_set_led(true);
             break;
         case PLAY:
-            blink_led(1, 500);
             btn_cfg_listener(prev_time, current_time);
             break;
         case CONFIG:
-            midi_config(prev_time, current_time);
+            midi_config_mode(prev_time, current_time);
             break;
         default:
             printf("In an invalid state\n");
@@ -143,7 +121,7 @@ void core0_entry()
 // Checks for MIDI signals over UART
 void core1_entry()
 {
-    /*
+
     // UART setup
     uart_init(UART_ID, 2400);
     gpio_set_function(UART_RX_PIN, UART_FUNCSEL_NUM(UART_ID, UART_RX_PIN));
@@ -160,18 +138,20 @@ void core1_entry()
     irq_set_enabled(UART_IRQ, true);
     uart_set_irqs_enabled(UART_ID, true, false);
 
-    // multicore_fifo_clear_irq();
-    // irq_set_exclusive_handler(SIO_FIFO_IRQ_NUM(1), core1_sio_irq);
-    // irq_set_enabled(SIO_FIFO_IRQ_NUM(1), true);
+    absolute_time_t current_time;
+    absolute_time_t prev_time;
 
-    // // Send something to Core0, this should fire the interrupt.
-    // multicore_fifo_push_blocking(FLAG_VALUE1);
-*/
-    while (true)
+    while (1)
     {
-        sleep_ms(1000);
-        // run();
-        printf("core 1\n");
+        prev_time = current_time;
+        if (prev_time != current_time && current_time % 1000 == 0)
+        {
+            printf("core 1 loop\n",
+                   cfg_button_pressed_time,
+                   current_time,
+                   state_to_string[application_state]);
+        }
+        current_time = to_ms_since_boot(get_absolute_time());
     }
 }
 
@@ -180,9 +160,10 @@ int main()
     try
     {
         sleep_ms(500);
-        setup();
+        core0_setup();
 
-        // multicore_launch_core1(core1_entry);
+        multicore_launch_core1(core1_entry);
+
         set_application_state(PLAY);
         core0_entry();
 
@@ -196,7 +177,7 @@ int main()
     return 0;
 }
 
-void setup()
+void core0_setup()
 {
     set_application_state(INIT);
     stdio_init_all();
@@ -228,12 +209,11 @@ void setup()
     blink_led(10, 50);
 }
 
-void midi_config(absolute_time_t prev_time, absolute_time_t current_time)
+void midi_config_mode(absolute_time_t prev_time, absolute_time_t current_time)
 {
-    blink_led(1, 250);
-
     if (!is_at_the_end_of_time(cfg_button_pressed_time))
         set_application_state(PLAY);
+    blink_led(1, 250);
 }
 
 void btn_cfg_listener(absolute_time_t prev_time, absolute_time_t current_time)
@@ -250,44 +230,33 @@ void btn_cfg_listener(absolute_time_t prev_time, absolute_time_t current_time)
     }
 }
 
-void run()
+void midi_msg_handler(uint8_t status, uint8_t data_1, uint8_t data_2)
 {
-    status = midi_rx();
-    data_1 = midi_rx();
-    data_2 = midi_rx();
+    unsigned char voice_category = status & 0xF0;
+    unsigned char midi_channel = status & 0x0F;
 
-    midi_msg = status & 0xF0;
-    midi_channel = status & 0x0F;
+    print_midi_msg(status, data_1, data_2);
 
-    if ((status & MIDI_CLK) == MIDI_CLK)
-    {
-        clk_counter++;
-        if (clk_counter >= 24)
-        {
-            printf("CLK, QUARTER NOTE\n");
-            clk_counter = 0;
-        }
-    }
-
-    switch (midi_msg)
+    switch (voice_category)
     {
     case NOTE_ON:
-        print_midi_msg(status, data_1, data_2);
+        // print_midi_msg(status, data_1, data_2);
         printf("NOTE ON: ");
         printf("Channel %u, ", midi_channel);
         printf("Note %u\n", data_1);
         break;
     case NOTE_OFF:
-        print_midi_msg(status, data_1, data_2);
+        // print_midi_msg(status, data_1, data_2);
         printf("NOTE OFF: ");
         printf("Channel %u, ", midi_channel);
         printf("Note %u\n", data_1);
 
-        // pass data along to the correct channel
+        // TODO: pass data along to the correct channel
         break;
     default:
         break;
     }
+    blink_led(1, LED_DELAY_MS);
 }
 
 void gpio_callback(uint gpio, uint32_t events)
@@ -321,28 +290,91 @@ void gpio_callback(uint gpio, uint32_t events)
     }
 }
 
-void on_uart_rx()
+/// @brief reads the next byte from uart RX
+/// @return
+int8_t read_uart_rx()
 {
+    int8_t ch;
+    if (!uart_is_readable_within_us(UART_ID, 350))
+        return ch;
+
     while (uart_is_readable(UART_ID))
     {
-        uint8_t ch = uart_getc(UART_ID);
-        printf("%x ", ch);
+        ch = uart_getc(UART_ID); // This should be the only call to uart_getc
+        if ((ch & MIDI_CLK) == MIDI_CLK)
+        {
+            uart_clk_handler();
+            continue;
+        }
+        break;
     }
+    return ch;
 }
 
-unsigned char midi_rx()
+void uart_clk_handler()
 {
-    while (!uart_is_readable(UART_ID))
+    clk_counter++;
+    if (clk_counter >= 24)
     {
+        printf("CLK, QUARTER NOTE\n");
+        clk_counter = 0;
     }
-    unsigned char rx = uart_getc(UART_ID);
-
-    return rx;
 }
+
+void on_uart_rx()
+{
+    if (uart_is_readable(UART_ID))
+    {
+        int8_t ch = uart_getc(UART_ID);
+        bool is_status_msg = (ch & 0x80) == 0x80;
+
+        // Push the message into a buffer
+    }
+}
+
+// void on_uart_rx()
+// {
+//     uint8_t midi_msg_buffer[3] = {};
+
+//     while (uart_is_readable(UART_ID))
+//     {
+//         int8_t ch = uart_getc(UART_ID);
+//         bool is_status_msg = (ch & 0x80) == 0x80;
+
+//         if (!is_status_msg)
+//             break;
+
+//         unsigned char voice_category = ch & 0xF0;
+
+//         if ((ch & MIDI_CLK) == MIDI_CLK)
+//         {
+//             uart_clk_handler();
+//             continue;
+//         }
+
+//         if ((voice_category & NOTE_ON) == NOTE_ON)
+//         {
+//             midi_msg_buffer[0] = ch;
+//             midi_msg_buffer[1] = read_uart_rx();
+//             midi_msg_buffer[2] = read_uart_rx();
+
+//             midi_msg_handler(midi_msg_buffer[0], midi_msg_buffer[1], midi_msg_buffer[2]);
+//             continue;
+//         }
+//         else if ((voice_category & NOTE_OFF) == NOTE_OFF)
+//         {
+//             midi_msg_buffer[0] = ch;
+//             midi_msg_buffer[1] = read_uart_rx();
+//             midi_msg_buffer[2] = read_uart_rx();
+
+//             midi_msg_handler(midi_msg_buffer[0], midi_msg_buffer[1], midi_msg_buffer[2]);
+//             continue;
+//         }
+//     }
+// }
 
 void set_application_state(State state)
 {
-
     printf("From State ");
     printf(state_to_string[application_state]);
     printf(" to ");
@@ -357,7 +389,7 @@ void set_application_state(State state)
 
 void print_midi_msg(char status, char data_1, char data_2)
 {
-    printf("full message");
+    printf("full message ");
     printf("0x%x ", status);
     printf("0x%x ", data_1);
     printf("0x%x\n", data_2);
@@ -428,30 +460,9 @@ void gpio_event_string(char *buf, uint32_t events)
     *buf++ = '\0';
 }
 
-// void state_to_string(char *strOut)
-// {
-//     char *str;
-//     switch (application_state)
-//     {
-//     case BOOT:
-//         str = "BOOT";
-//         break;
-//     case INIT:
-//         str = "INIT";
-//         break;
-//     case PLAY:
-//         str = "PLAY";
-//         break;
-//     case CONFIG:
-//         str = "CONF";
-//         break;
-//     default:
-//         str = "UNDF";
-//         break;
-//     }
-
-//     for (size_t i = 0; i < 5; i++)
-//     {
-//         strOut[i] = str[i];
-//     }
-// }
+// Shifts the elements in a len(3) array one step to the left
+void shift_array(uint8_t *arr)
+{
+    arr[2] = arr[1];
+    arr[1] = arr[0];
+}
