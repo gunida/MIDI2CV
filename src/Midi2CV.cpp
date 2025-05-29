@@ -78,7 +78,7 @@ void core0_entry()
 void core1_entry()
 {
     Core1 core1;
-    core1.run();
+    core1.initialize();
 }
 
 int main()

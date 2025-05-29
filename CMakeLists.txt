@@ -37,7 +37,7 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(Midi2CV src/Midi2CV.cpp src/core1.cpp)
+add_executable(Midi2CV src/Midi2CV.cpp src/core1.cpp inc/buffer.cpp)
 
 pico_set_program_name(Midi2CV "Midi2CV")
 pico_set_program_version(Midi2CV "0.1")

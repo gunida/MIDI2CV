@@ -1,11 +1,8 @@
 #include <stdio.h>
-// #include <map>
 #include "pico/stdlib.h"
 #include "pico/time.h"
-// #include "hardware/pwm.h"
 #include "hardware/uart.h"
 #include "hardware/irq.h"
-// #include "pico/multicore.h"
 #include "../inc/buffer.h"
 #include "common.h"
 #include "core1.h"
@@ -16,62 +13,44 @@
 #define DATA_BITS 8
 #define STOP_BITS 1
 #define PARITY UART_PARITY_NONE
+#define BUFFER_SIZE 128
 
-#define NOTE_ON 0x90
-#define NOTE_OFF 0x80
+#define NOTE_OFF 0x80     // 2 data bytes
+#define NOTE_ON 0x90      // 2 data bytes
+#define AFTERTOUCH 0xA0   // 2 data bytes
+#define CTRL_CHANGE 0xB0  // 2 data bytes
+#define PRGM_CHANGE 0xC0  // 1 data bytes
+#define CHN_PRESSURE 0xD0 // 1 data bytes
+#define WHEEL 0xE0        // 2 data bytes
 #define MIDI_CLK 0xF8
 
 Core1 *Core1::global_instance = nullptr;
 
+Buffer rx_buffer;
+unsigned int clk_counter;
+
 Core1::Core1()
 {
+}
+
+int Core1::main()
+{
+    printf("Core1 main\n");
     setup();
+    run();
+    return 0;
 }
 
-void Core1::run()
-{
-    while (1)
-    {
-        prev_time = current_time;
-
-        // TODO: Read midi messages from the buffer and act on them
-
-        if (prev_time != current_time && current_time % 1000 == 0)
-        {
-            // printf("core 1 loop\n",
-            //        cfg_button_pressed_time,
-            //        current_time,
-            //        state_to_string[application_state]);
-        }
-        sleep_ms(1);
-        current_time = to_ms_since_boot(get_absolute_time());
-    }
-}
-
-void Core1::rx_handler()
-{
-    if (uart_is_readable(UART_ID))
-    {
-        int8_t ch = uart_getc(UART_ID);
-        bool is_status_msg = (ch & 0x80) == 0x80;
-        bool is_status_clk = (ch & MIDI_CLK) == MIDI_CLK;
-
-        if (is_status_clk)
-        {
-            uart_clk_handler();
-            return;
-        }
-        else
-        {
-            // Push the message into a buffer
-        }
-    }
-}
-
+/// @brief Initializes UART, IRQ, and Buffer
 void Core1::setup()
 {
     clk_counter = 0;
-    global_instance = this;
+    BUFFER_STATUS status = buffer_init(&rx_buffer, BUFFER_SIZE);
+    if (status != BUFFER_SUCCESS)
+    {
+        printf("FATAL: Could not initialize Buffer.\n");
+        throw;
+    }
 
     // UART setup
     uart_init(UART_ID, 2400);
@@ -79,44 +58,82 @@ void Core1::setup()
     uart_set_baudrate(UART_ID, BAUD_RATE);
     uart_set_hw_flow(UART_ID, false, false);
     uart_set_format(UART_ID, DATA_BITS, STOP_BITS, PARITY);
-    // uart_set_fifo_enabled(UART_ID, false);
+    uart_set_fifo_enabled(UART_ID, false);
 
+    // IRQ setup
     int UART_IRQ = UART_ID == uart0 ? UART0_IRQ : UART1_IRQ;
-    // TODO: irq_set_exclusive_handler disables the Button IRQ below
-    // need to do multicore to have IRQ on both UART and GPIO
-    // https://github.com/raspberrypi/pico-examples/blob/master/multicore/multicore_fifo_irqs/multicore_fifo_irqs.c
-    irq_set_exclusive_handler(UART_IRQ, trampolineHandler);
+    irq_set_exclusive_handler(UART_IRQ, rx_handler_ptr);
     irq_set_enabled(UART_IRQ, true);
     uart_set_irqs_enabled(UART_ID, true, false);
+
+    global_instance = this;
 }
 
-int8_t Core1::read_uart_rx()
+void Core1::run()
 {
-    int8_t ch;
-    if (!uart_is_readable_within_us(UART_ID, 350))
-        return ch;
+    uint8_t status;
 
+    while (1)
+    {
+        if (!buffer_is_empty(&rx_buffer) && buffer_get_size(&rx_buffer) > 1)
+        {
+            if (buffer_pop(&rx_buffer, &status) == BUFFER_SUCCESS)
+                // printf("rx 0x%u\n", status);
+                midi_msg_receiver(status);
+        }
+    }
+}
+
+/// @brief UART interrupt handler
+void Core1::rx_handler()
+{
     while (uart_is_readable(UART_ID))
     {
-        ch = uart_getc(UART_ID); // This should be the only call to uart_getc
+        uint8_t ch = uart_getc(UART_ID);
         if ((ch & MIDI_CLK) == MIDI_CLK)
         {
             uart_clk_handler();
             continue;
         }
-        break;
+
+        // Push the message into a buffer
+        if (buffer_push(&rx_buffer, &ch) != BUFFER_SUCCESS)
+        {
+            printf("ERROR: Could not push to Buffer. Freeing it. \n");
+            buffer_u8_free(&rx_buffer);
+        }
     }
-    return ch;
 }
 
-void Core1::uart_clk_handler()
+void Core1::midi_msg_receiver(uint8_t status)
 {
-    clk_counter++;
-    if (clk_counter >= 24)
+    uint8_t midi_msg_buffer[3] = {};
+
+    unsigned char voice_category = status & 0xF0;
+
+    switch (voice_category)
     {
-        printf("CLK, QUARTER NOTE\n");
-        common.blink_led(1, LED_DELAY_MS);
-        clk_counter = 0;
+    case NOTE_ON:
+    case NOTE_OFF:
+        midi_msg_buffer[0] = status;
+        buffer_pop(&rx_buffer, &midi_msg_buffer[1]);
+        buffer_pop(&rx_buffer, &midi_msg_buffer[2]);
+
+        midi_msg_handler(midi_msg_buffer[0], midi_msg_buffer[1], midi_msg_buffer[2]);
+        break;
+    case PRGM_CHANGE:
+    case CHN_PRESSURE:
+        buffer_pop(&rx_buffer, nullptr);
+        break;
+    case AFTERTOUCH:
+    case CTRL_CHANGE:
+    case WHEEL:
+        buffer_pop(&rx_buffer, nullptr);
+        buffer_pop(&rx_buffer, nullptr);
+        break;
+    default:
+        printf("ERROR: %u is not a MIDI message type.\n", voice_category);
+        break;
     }
 }
 
@@ -131,61 +148,29 @@ void Core1::midi_msg_handler(uint8_t status, uint8_t data_1, uint8_t data_2)
     {
     case NOTE_ON:
         // print_midi_msg(status, data_1, data_2);
-        printf("NOTE ON: ");
-        printf("Channel %u, ", midi_channel);
-        printf("Note %u\n", data_1);
+        printf("NOTE ON: Channel %u, Note %u\n", midi_channel, data_1);
         break;
     case NOTE_OFF:
         // print_midi_msg(status, data_1, data_2);
-        printf("NOTE OFF: ");
-        printf("Channel %u, ", midi_channel);
-        printf("Note %u\n", data_1);
+        printf("NOTE OFF: Channel %u, Note %u\n", midi_channel, data_1);
 
         // TODO: pass data along to the correct channel
         break;
     default:
         break;
     }
-    common.blink_led(1, 80);
+    // common.blink_led(1, LED_DELAY_MS);
 }
 
-// void on_uart_rx()
-// {
-//     uint8_t midi_msg_buffer[3] = {};
-
-//     while (uart_is_readable(UART_ID))
-//     {
-//         int8_t ch = uart_getc(UART_ID);
-//         bool is_status_msg = (ch & 0x80) == 0x80;
-
-//         if (!is_status_msg)
-//             break;
-
-//         unsigned char voice_category = ch & 0xF0;
-
-//         if ((ch & MIDI_CLK) == MIDI_CLK)
-//         {
-//             uart_clk_handler();
-//             continue;
-//         }
-
-//         if ((voice_category & NOTE_ON) == NOTE_ON)
-//         {
-//             midi_msg_buffer[0] = ch;
-//             midi_msg_buffer[1] = read_uart_rx();
-//             midi_msg_buffer[2] = read_uart_rx();
-
-//             midi_msg_handler(midi_msg_buffer[0], midi_msg_buffer[1], midi_msg_buffer[2]);
-//             continue;
-//         }
-//         else if ((voice_category & NOTE_OFF) == NOTE_OFF)
-//         {
-//             midi_msg_buffer[0] = ch;
-//             midi_msg_buffer[1] = read_uart_rx();
-//             midi_msg_buffer[2] = read_uart_rx();
-
-//             midi_msg_handler(midi_msg_buffer[0], midi_msg_buffer[1], midi_msg_buffer[2]);
-//             continue;
-//         }
-//     }
-// }
+/// @brief This method should send clock triggers on a GPIO pin
+void Core1::uart_clk_handler()
+{
+    // TODO: Actual implementation
+    clk_counter++;
+    if (clk_counter >= 24)
+    {
+        printf("CLK, QUARTER NOTE\n");
+        common.blink_led(1, LED_DELAY_MS);
+        clk_counter = 0;
+    }
+}

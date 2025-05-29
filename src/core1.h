@@ -23,18 +23,17 @@ class Core1
 {
 private:
     Common common;
-    absolute_time_t current_time;
-    absolute_time_t prev_time;
-
-    Buffer rx_buffer;
-    unsigned int clk_counter;
     static Core1 *global_instance;
 
+    int main();
+    void run();
     void setup();
+    void rx_handler();
     int8_t read_uart_rx();
     void uart_clk_handler();
+    void midi_msg_receiver(uint8_t status);
     void midi_msg_handler(uint8_t status, uint8_t data_1, uint8_t data_2);
-    static void trampolineHandler()
+    static void rx_handler_ptr()
     {
         if (global_instance)
             global_instance->rx_handler();
@@ -42,7 +41,10 @@ private:
 
 public:
     Core1();
-
-    void run();
-    void rx_handler();
+    void initialize()
+    {
+        main();
+        // if (global_instance)
+        //     global_instance->main();
+    }
 };
