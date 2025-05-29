@@ -28,6 +28,7 @@ set(PICO_BOARD pico CACHE STRING "Board type")
 
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
+include_directories(inc)
 
 project(Midi2CV C CXX ASM)
 
@@ -36,7 +37,7 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(Midi2CV Midi2CV.cpp )
+add_executable(Midi2CV src/Midi2CV.cpp src/core1.cpp)
 
 pico_set_program_name(Midi2CV "Midi2CV")
 pico_set_program_version(Midi2CV "0.1")
@@ -50,6 +51,8 @@ target_link_libraries(Midi2CV
         pico_stdlib 
         hardware_pwm
         pico_multicore
+        hardware_irq
+        hardware_uart
         )
 
 # Add the standard include files to the build
