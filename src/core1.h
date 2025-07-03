@@ -1,11 +1,3 @@
-// #include <stdio.h>
-// #include <map>
-// #include "pico/stdlib.h"
-// #include "pico/time.h"
-// #include "hardware/pwm.h"
-// #include "hardware/irq.h"
-// #include "hardware/uart.h"
-// #include "pico/multicore.h"
 #include "../inc/buffer.h"
 
 #define UART_ID uart1
@@ -32,7 +24,7 @@ private:
     int8_t read_uart_rx();
     void uart_clk_handler();
     void midi_msg_receiver(uint8_t status);
-    void midi_msg_handler(uint8_t status, uint8_t data_1, uint8_t data_2);
+    void midi_msg_handler(uint8_t status, uint8_t note, uint8_t velocity);
     static void rx_handler_ptr()
     {
         if (global_instance)

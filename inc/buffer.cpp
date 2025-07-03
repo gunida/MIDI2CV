@@ -1,6 +1,7 @@
 #include "buffer.h"
 #include <stdint.h>
 #include <stdlib.h>
+#include <cstdio>
 
 BUFFER_STATUS buffer_init(Buffer *buf, uint16_t buffer_size)
 {
@@ -68,17 +69,20 @@ BUFFER_STATUS buffer_push(Buffer *buf, const uint8_t *input)
 {
     if (!buf || !buf->buffer || !input)
     {
+        printf("BUFFER_PUSH FAILURE: BUF OR INPUT UNDEFINED\n");
         return BUFFER_FAILURE;
     }
 
     uint16_t next_front = (buf->idx_front + 1) & (buf->length - 1);
     if (next_front == buf->idx_rear)
     {
+        printf("BUFFER_PUSH FAILURE: BUFFER FULL\n");
         return BUFFER_FAILURE; // Buffer full
     }
 
     buf->buffer[buf->idx_front] = *input;
     buf->idx_front = next_front;
+    printf("BUFFER PUSHED 0x%x\n", *input);
     return BUFFER_SUCCESS;
 }
 
@@ -86,16 +90,19 @@ BUFFER_STATUS buffer_pop(Buffer *buf, uint8_t *ret)
 {
     if (!buf || !buf->buffer || !ret)
     {
+        printf("BUFFER_POP FAILURE: BUF OR REF UNDEFINED\n");
         return BUFFER_FAILURE;
     }
 
     if (buf->idx_front == buf->idx_rear)
     {
+        printf("BUFFER_POP FAILURE: EMPTY\n");
         return BUFFER_FAILURE; // Buffer empty
     }
 
     *ret = buf->buffer[buf->idx_rear];
     buf->idx_rear = (buf->idx_rear + 1) & (buf->length - 1);
+    printf("BUFFER POPPED 0x%x\n", *ret);
     return BUFFER_SUCCESS;
 }
 
