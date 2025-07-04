@@ -7,27 +7,11 @@
 #include "common.h"
 #include "core1.h"
 
-#define UART_ID uart1
-#define UART_RX_PIN 5
-#define BAUD_RATE 31250
-#define DATA_BITS 8
-#define STOP_BITS 1
-#define PARITY UART_PARITY_NONE
-#define BUFFER_SIZE 128
-
-#define NOTE_OFF 0x80     // 2 data bytes
-#define NOTE_ON 0x90      // 2 data bytes
-#define AFTERTOUCH 0xA0   // 2 data bytes
-#define CTRL_CHANGE 0xB0  // 2 data bytes
-#define PRGM_CHANGE 0xC0  // 1 data bytes
-#define CHN_PRESSURE 0xD0 // 1 data bytes
-#define WHEEL 0xE0        // 2 data bytes
-#define MIDI_CLK 0xF8
-
 Core1 *Core1::global_instance = nullptr;
 
 Buffer rx_buffer;
 unsigned int clk_counter;
+MIDI_event_analysis analysis;
 
 Core1::Core1()
 {
@@ -88,14 +72,72 @@ void Core1::run()
     printf("expected: 012\n");
     printf("buffer size: %u, exp 0\n", buffer_get_size(&rx_buffer));
 
+    MIDI_event midi_event;
+
     while (1)
     {
-        if (!buffer_is_empty(&rx_buffer) && buffer_get_size(&rx_buffer) > 1)
+        if (!buffer_is_empty(&rx_buffer))
         {
-            if (buffer_pop(&rx_buffer, &status) == BUFFER_SUCCESS)
-                midi_msg_receiver(status);
+            uint8_t msg;
+            if (buffer_pop(&rx_buffer, &msg) != BUFFER_SUCCESS)
+                continue;
+
+            unsigned char voice_category = 0;
+            unsigned char channel = 16;
+
+            // printf("msg: 0x%x\n", msg);
+
+            switch (analysis.state)
+            {
+            case START_ANALYSIS:
+                voice_category = msg & 0xF0;
+                channel = msg & 0x0F;
+                // printf("msg: 0x%x, type: 0x%x, channel: 0x%x, %x\n", msg, voice_category, channel, msg & 0x80);
+                if ((msg & 0x80) == 0)
+                    break;
+
+                analysis.type = voice_category;
+                analysis.channel = channel;
+                analysis.state = WAIT_DATA_1;
+
+                midi_event.channel = channel;
+                midi_event.type = voice_category;
+                break;
+            case WAIT_DATA_1:
+                if (analysis.type == PRGM_CHANGE || analysis.type == CHN_PRESSURE)
+                {
+                    midi_event.data[0] = msg;
+                    analysis.state = FINISHED_ANALYSIS;
+                    finish_analysis(&analysis, &midi_event);
+                }
+                else
+                {
+                    midi_event.data[0] = msg;
+                    analysis.state = WAIT_DATA_2;
+                    break;
+                }
+                break;
+            case WAIT_DATA_2:
+                midi_event.data[1] = msg;
+                analysis.state = FINISHED_ANALYSIS;
+                finish_analysis(&analysis, &midi_event);
+                break;
+            default:
+                break;
+            }
         }
     }
+}
+
+void Core1::finish_analysis(MIDI_event_analysis *analysis, MIDI_event *midi_event)
+{
+    midi_msg_handler(midi_event);
+    analysis->state = START_ANALYSIS;
+    analysis->channel = 16;
+    analysis->type = 0;
+
+    midi_event->channel = 16;
+    midi_event->type = 0;
 }
 
 /// @brief UART interrupt handler
@@ -119,70 +161,21 @@ void Core1::rx_handler()
     }
 }
 
-/// @brief Removes the expected amount of bytes from the buffer
-/// depending on the message type.
-/// @param status full 2-byte message 0x<message type><midi channel>
-void Core1::midi_msg_receiver(uint8_t status)
-{
-    // TODO: Store status, note, velocity outside of this method to parse messages that get read before they're finished sending
-    uint8_t note, velocity, trash;
-
-    unsigned char voice_category = status & 0xF0;
-
-    printf(" buffer size A: %u\n", buffer_get_size(&rx_buffer));
-    switch (voice_category)
-    {
-    case NOTE_ON:
-    case NOTE_OFF:
-
-        buffer_pop(&rx_buffer, &note);     // Note
-        buffer_pop(&rx_buffer, &velocity); // Velocity
-
-        printf(" buffer size B: %u\n", buffer_get_size(&rx_buffer));
-        midi_msg_handler(status, note, velocity);
-        break;
-    case PRGM_CHANGE:
-    case CHN_PRESSURE:
-        // 1-byte long events
-        printf("INFO: ignoring incoming event 0x%x\n", voice_category);
-        buffer_pop(&rx_buffer, &trash);
-        printf(" buffer size C: %u\n", buffer_get_size(&rx_buffer));
-        break;
-    case AFTERTOUCH:
-    case CTRL_CHANGE:
-    case WHEEL:
-        // 2-byte long events
-        printf("INFO: ignoring incoming event 0x%x\n", voice_category);
-        buffer_pop(&rx_buffer, &trash);
-        buffer_pop(&rx_buffer, &trash);
-        printf(" buffer size D: %u\n", buffer_get_size(&rx_buffer));
-        break;
-    default:
-        printf("INFO: ignoring incoming event 0x%x\n", voice_category);
-        break;
-    }
-    if (rx_buffer.idx_rear > 0)
-        printf(" buffer size E: %u\n", buffer_get_size(&rx_buffer));
-}
-
 /// @brief Handles note on/off events
 /// @param status full 2-byte message 0x<message type><midi channel>
-void Core1::midi_msg_handler(uint8_t status, uint8_t note, uint8_t velocity)
+void Core1::midi_msg_handler(MIDI_event *midi_event)
 {
-    unsigned char voice_category = status & 0xF0;
-    unsigned char midi_channel = status & 0x0F;
+    common.print_midi_msg(midi_event->type | midi_event->channel, midi_event->data[0], midi_event->data[1]);
 
-    common.print_midi_msg(status, note, velocity);
-
-    switch (voice_category)
+    switch (midi_event->type)
     {
     case NOTE_ON:
         // print_midi_msg(status, data_1, data_2);
-        printf("NOTE ON: Channel %u, Note %u\n", midi_channel, note);
+        // printf("NOTE ON: Channel %u, Note %u\n", midi_event->channel, midi_event->data[0]);
         break;
     case NOTE_OFF:
         // print_midi_msg(status, data_1, data_2);
-        printf("NOTE OFF: Channel %u, Note %u\n", midi_channel, note);
+        // printf("NOTE OFF: Channel %u, Note %u\n", midi_event->channel, midi_event->data[0]);
 
         // TODO: pass data along to the correct channel
         break;

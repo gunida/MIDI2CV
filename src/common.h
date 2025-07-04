@@ -39,10 +39,10 @@ public:
 #endif
     }
 
-    const void print_midi_msg(char status, char data_1, char data_2)
+    const void print_midi_msg(char type, char data_1, char data_2)
     {
-        printf("full message ");
-        printf("0x%x ", status);
+        printf("MIDI event ");
+        printf("0x%x ", type);
         printf("0x%x ", data_1);
         printf("0x%x\n", data_2);
     }

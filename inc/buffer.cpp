@@ -82,7 +82,6 @@ BUFFER_STATUS buffer_push(Buffer *buf, const uint8_t *input)
 
     buf->buffer[buf->idx_front] = *input;
     buf->idx_front = next_front;
-    printf("BUFFER PUSHED 0x%x\n", *input);
     return BUFFER_SUCCESS;
 }
 
@@ -102,7 +101,6 @@ BUFFER_STATUS buffer_pop(Buffer *buf, uint8_t *ret)
 
     *ret = buf->buffer[buf->idx_rear];
     buf->idx_rear = (buf->idx_rear + 1) & (buf->length - 1);
-    printf("BUFFER POPPED 0x%x\n", *ret);
     return BUFFER_SUCCESS;
 }
 
