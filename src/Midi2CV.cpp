@@ -2,8 +2,6 @@
 
 #include <stdio.h>
 #include <map>
-// #include "pico/stdlib.h"
-// #include "pico/time.h"
 #include "hardware/pwm.h"
 #include "pico/multicore.h"
 #include "common.h"
@@ -119,15 +117,15 @@ void core0_setup()
     irq_set_enabled(IO_IRQ_BANK0, true);
     // END Config button setup
 
-    // Output setup
-    for (int i = 0; i < 16; i++)
-    {
-        gpio_set_function(6 + i, GPIO_FUNC_PWM);
-        uint slice_num = pwm_gpio_to_slice_num(i);
-        pwm_set_phase_correct(slice_num, false);
-        pwm_set_wrap(slice_num, 12000);
-        pwm_set_enabled(slice_num, true);
-    }
+    // // Output setup
+    // for (int i = 0; i < 16; i++)
+    // {
+    //     gpio_set_function(6 + i, GPIO_FUNC_PWM);
+    //     uint slice_num = pwm_gpio_to_slice_num(i);
+    //     pwm_set_phase_correct(slice_num, false);
+    //     pwm_set_wrap(slice_num, 12000);
+    //     pwm_set_enabled(slice_num, true);
+    // }
 
     sleep_ms(1000);
     printf("Started up!\n");

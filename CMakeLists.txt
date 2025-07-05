@@ -53,6 +53,7 @@ target_link_libraries(Midi2CV
         pico_multicore
         hardware_irq
         hardware_uart
+        hardware_pio
         )
 
 # Add the standard include files to the build

@@ -8,6 +8,9 @@
 #define PARITY UART_PARITY_NONE
 #define BUFFER_SIZE 128
 
+#define FIRST_OUTPIT_PIN 16
+#define NUM_OUTPUTS 1
+
 typedef enum
 {
     NOTE_OFF = 0x80,     // 2 data bytes
@@ -18,7 +21,7 @@ typedef enum
     CHN_PRESSURE = 0xD0, // 1 data bytes
     WHEEL = 0xE0,        // 2 data bytes
     MIDI_CLK = 0xF8
-} MIDI_msg_type;
+} MIDI_MSG_TYPE;
 
 typedef enum
 {
@@ -39,8 +42,26 @@ typedef struct
 {
     unsigned char type;
     uint8_t channel;
-    uint8_t data[32];
+    uint8_t data[4];
 } MIDI_event;
+
+typedef struct
+{
+    uint gpio;
+    uint8_t channel;
+    uint8_t note;
+    bool gate_active;
+
+    uint get_gate_pin()
+    {
+        return gpio + NUM_OUTPUTS;
+    }
+} CV_output;
+
+typedef struct
+{
+    CV_output *outputs;
+} Output_config;
 
 class Core1
 {
@@ -49,13 +70,18 @@ private:
     static Core1 *global_instance;
 
     int main();
-    void run();
-    void setup();
+    CV_output *mock_output_config();
+    void run(Output_config *output_config);
+    void setup(Output_config *output_config);
     void rx_handler();
     int8_t read_uart_rx();
     void uart_clk_handler();
-    void midi_msg_handler(MIDI_event *midi_event);
-    void finish_analysis(MIDI_event_analysis *analysis, MIDI_event *midi_event);
+    void midi_msg_handler(MIDI_event *midi_event, Output_config *output_config);
+    void finish_analysis(MIDI_event_analysis *analysis, MIDI_event *midi_event, Output_config *output_config);
+
+    void setup_output_pin(CV_output conf);
+    void output_cv(CV_output cv_out);
+
     static void rx_handler_ptr()
     {
         if (global_instance)
