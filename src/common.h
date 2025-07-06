@@ -2,6 +2,7 @@
 #include "pico/stdlib.h"
 
 #define LED_DELAY_MS 80
+#define VOLT_PER_SEMITONE 1.0 / 12.0
 
 class Common
 {

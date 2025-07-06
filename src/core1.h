@@ -41,15 +41,15 @@ typedef struct
 typedef struct
 {
     unsigned char type;
-    uint8_t channel;
+    uint channel;
     uint8_t data[4];
 } MIDI_event;
 
 typedef struct
 {
     uint gpio;
-    uint8_t channel;
-    uint8_t note;
+    uint channel;
+    uint note;
     bool gate_active;
 
     uint get_gate_pin()
@@ -58,11 +58,6 @@ typedef struct
     }
 } CV_output;
 
-typedef struct
-{
-    CV_output *outputs;
-} Output_config;
-
 class Core1
 {
 private:
@@ -70,14 +65,14 @@ private:
     static Core1 *global_instance;
 
     int main();
-    CV_output *mock_output_config();
-    void run(Output_config *output_config);
-    void setup(Output_config *output_config);
+    void mock_output_config();
+    void run();
+    void setup();
     void rx_handler();
     int8_t read_uart_rx();
     void uart_clk_handler();
-    void midi_msg_handler(MIDI_event *midi_event, Output_config *output_config);
-    void finish_analysis(MIDI_event_analysis *analysis, MIDI_event *midi_event, Output_config *output_config);
+    void midi_msg_handler(MIDI_event *midi_event);
+    void finish_analysis(MIDI_event_analysis *analysis, MIDI_event *midi_event);
 
     void setup_output_pin(CV_output conf);
     void output_cv(CV_output cv_out);

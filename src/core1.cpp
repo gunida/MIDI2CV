@@ -12,6 +12,7 @@ Core1 *Core1::global_instance = nullptr;
 
 Buffer rx_buffer;
 unsigned int clk_counter;
+CV_output outputs[NUM_OUTPUTS];
 
 Core1::Core1()
 {
@@ -19,16 +20,14 @@ Core1::Core1()
 
 int Core1::main()
 {
-    Output_config *output_config;
-
     printf("Core1 main\n");
-    setup(output_config);
-    run(output_config);
+    setup();
+    run();
     return 0;
 }
 
 /// @brief Initializes UART, IRQ, and Buffer
-void Core1::setup(Output_config *output_config)
+void Core1::setup()
 {
     clk_counter = 0;
     BUFFER_STATUS status = buffer_init(&rx_buffer, BUFFER_SIZE);
@@ -52,62 +51,43 @@ void Core1::setup(Output_config *output_config)
     irq_set_enabled(UART_IRQ, true);
     uart_set_irqs_enabled(UART_ID, true, false);
 
-    CV_output *cv_conf = mock_output_config();
-    output_config->outputs = cv_conf;
+    mock_output_config();
 
-    // TODO: this logs Mocked output pin GPIO: 537140992, GPIO 2: 0
-    // WHY
-    printf("Mocked output pin GPIO: %d, GPIO 2: %d \n", cv_conf[0].gpio, &(cv_conf[0].gpio));
+    printf("Mocked output pin GPIO: %d \n", outputs[0].gpio);
 
     // GPIO setup(outputs)
     for (size_t i = 0; i < NUM_OUTPUTS; i++)
     {
-        CV_output conf = output_config->outputs[i];
-        setup_output_pin(conf);
+        setup_output_pin(outputs[i]);
     }
 
     global_instance = this;
 }
 
-CV_output *Core1::mock_output_config()
+void Core1::mock_output_config()
 {
-    CV_output *result;
     for (size_t i = 0; i < NUM_OUTPUTS; i++)
     {
-        result[i].channel = 7;
-        result[i].gpio = FIRST_OUTPIT_PIN + i; // TODO: Offset pins when NUM_OUTPUTS > 1
-        result[i].note = 0;
-        result[i].gate_active = false;
+        outputs[i].channel = 7;
+        outputs[i].gpio = FIRST_OUTPIT_PIN + i; // TODO: Offset pins when NUM_OUTPUTS > 1
+        outputs[i].note = 0;
+        outputs[i].gate_active = false;
     }
-
-    return result;
 }
-
-// void Core1::setup_output_pin(CV_output conf)
-// {
-//     printf("Setting up output pin %u\n", &conf.gpio);
-//     gpio_set_function(conf.gpio, GPIO_FUNC_PWM);
-//     uint slice_num = pwm_gpio_to_slice_num(conf.gpio);
-//     pwm_set_wrap(slice_num, 12000);
-//     pwm_set_enabled(slice_num, true);
-
-//     gpio_init(conf.get_gate_pin());
-//     gpio_set_dir(conf.get_gate_pin(), GPIO_OUT);
-// }
 
 void Core1::setup_output_pin(CV_output conf)
 {
-    printf("Setting up output pin %u\n", FIRST_OUTPIT_PIN);
-    gpio_set_function(FIRST_OUTPIT_PIN, GPIO_FUNC_PWM);
-    uint slice_num = pwm_gpio_to_slice_num(FIRST_OUTPIT_PIN);
+    printf("Setting up output pin %u\n", conf.gpio);
+    gpio_set_function(conf.gpio, GPIO_FUNC_PWM);
+    uint slice_num = pwm_gpio_to_slice_num(conf.gpio);
     pwm_set_wrap(slice_num, 12000);
     pwm_set_enabled(slice_num, true);
 
-    gpio_init(FIRST_OUTPIT_PIN + 1);
-    gpio_set_dir(FIRST_OUTPIT_PIN + 1, GPIO_OUT);
+    gpio_init(conf.get_gate_pin());
+    gpio_set_dir(conf.get_gate_pin(), GPIO_OUT);
 }
 
-void Core1::run(Output_config *output_config)
+void Core1::run()
 {
     uint8_t status;
     MIDI_event midi_event;
@@ -144,7 +124,7 @@ void Core1::run(Output_config *output_config)
                 {
                     midi_event.data[0] = msg;
                     analysis.state = FINISHED_ANALYSIS;
-                    finish_analysis(&analysis, &midi_event, output_config);
+                    finish_analysis(&analysis, &midi_event);
                 }
                 else // The rest have a data length of 2 bytes
                 {
@@ -156,7 +136,7 @@ void Core1::run(Output_config *output_config)
             case WAIT_DATA_2:
                 midi_event.data[1] = msg;
                 analysis.state = FINISHED_ANALYSIS;
-                finish_analysis(&analysis, &midi_event, output_config);
+                finish_analysis(&analysis, &midi_event);
                 break;
             default:
                 break;
@@ -165,9 +145,9 @@ void Core1::run(Output_config *output_config)
     }
 }
 
-void Core1::finish_analysis(MIDI_event_analysis *analysis, MIDI_event *midi_event, Output_config *output_config)
+void Core1::finish_analysis(MIDI_event_analysis *analysis, MIDI_event *midi_event)
 {
-    midi_msg_handler(midi_event, output_config);
+    midi_msg_handler(midi_event);
     analysis->state = START_ANALYSIS;
     analysis->channel = 0;
     analysis->type = 0;
@@ -199,27 +179,29 @@ void Core1::rx_handler()
 
 /// @brief Handles note on/off events
 /// @param status full 2-byte message 0x<message type><midi channel>
-void Core1::midi_msg_handler(MIDI_event *midi_event, Output_config *output_config)
+void Core1::midi_msg_handler(MIDI_event *midi_event)
 {
-    common.print_midi_msg(midi_event->type | midi_event->channel, midi_event->data[0], midi_event->data[1]);
-
     if (midi_event->channel > NUM_OUTPUTS - 1) // Error prevention until I can support 8 pwm outputs
         return;
 
-    CV_output out = output_config->outputs[midi_event->channel];
-    out.note = midi_event->data[0];
+    CV_output out = outputs[midi_event->channel];
 
     switch (midi_event->type)
     {
     case NOTE_ON:
-        out.gate_active = true;
+        (&out)->gate_active = true;
         break;
     case NOTE_OFF:
-        out.gate_active = false;
+        (&out)->gate_active = false;
         break;
     default:
+        return;
         break;
     }
+
+    (&out)->note = midi_event->data[0];
+    common.print_midi_msg(midi_event->type | midi_event->channel, midi_event->data[0], midi_event->data[1]);
+
     output_cv(out);
 }
 
@@ -238,6 +220,9 @@ void Core1::uart_clk_handler()
 
 void Core1::output_cv(CV_output cv_out)
 {
+    // TODO: output range is very low, doesn't reach higher than 150mV. It also fluctuates a bit
+    // look at other examples of PWM DAC
+    printf("Outputting Note %d Gate %d on GPIO %d Exp %fV\n", cv_out.note, cv_out.gate_active, cv_out.gpio, VOLT_PER_SEMITONE * (double)cv_out.note);
     pwm_set_gpio_level(cv_out.gpio, cv_out.note);
     gpio_put(cv_out.get_gate_pin(), cv_out.gate_active);
 }
