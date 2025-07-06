@@ -199,10 +199,13 @@ void Core1::midi_msg_handler(MIDI_event *midi_event)
         break;
     }
 
-    (&out)->note = midi_event->data[0];
-    common.print_midi_msg(midi_event->type | midi_event->channel, midi_event->data[0], midi_event->data[1]);
+    if (out.note >= 0 && out.note <= 127)
+    {
+        (&out)->note = midi_event->data[0];
+        common.print_midi_msg(midi_event->type | midi_event->channel, midi_event->data[0], midi_event->data[1]);
 
-    output_cv(out);
+        output_cv(out);
+    }
 }
 
 /// @brief This method should send clock triggers on a GPIO pin
@@ -220,9 +223,8 @@ void Core1::uart_clk_handler()
 
 void Core1::output_cv(CV_output cv_out)
 {
-    // TODO: output range is very low, doesn't reach higher than 150mV. It also fluctuates a bit
-    // look at other examples of PWM DAC
-    printf("Outputting Note %d Gate %d on GPIO %d Exp %fV\n", cv_out.note, cv_out.gate_active, cv_out.gpio, VOLT_PER_SEMITONE * (double)cv_out.note);
-    pwm_set_gpio_level(cv_out.gpio, cv_out.note);
+    printf("Outputting Note %d Gate %d on GPIO %d Exp %fV Amplified %fV\n", cv_out.note, cv_out.gate_active, cv_out.gpio, VOLT_PER_SEMITONE_OUT * (double)cv_out.note, (VOLT_PER_SEMITONE_OUT * (double)cv_out.note) * OPAMP_FACTOR);
+    // TODO: Self-adjusting offset to get as close as possible to 1v/oct?
+    pwm_set_gpio_level(cv_out.gpio, cv_out.note * 100);
     gpio_put(cv_out.get_gate_pin(), cv_out.gate_active);
 }

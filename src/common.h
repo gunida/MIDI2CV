@@ -3,6 +3,8 @@
 
 #define LED_DELAY_MS 80
 #define VOLT_PER_SEMITONE 1.0 / 12.0
+#define VOLT_PER_SEMITONE_OUT 3.3 / 120.0
+#define OPAMP_FACTOR 1 / 3.3 * 10
 
 class Common
 {
