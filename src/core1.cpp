@@ -23,7 +23,7 @@ int Core1::main()
     printf("Core1 main\n");
     setup();
     run();
-    return 0;
+    return 0; 
 }
 
 /// @brief Initializes UART, IRQ, and Buffer
@@ -80,7 +80,7 @@ void Core1::setup_output_pin(CV_output conf)
     printf("Setting up output pin %u\n", conf.gpio);
     gpio_set_function(conf.gpio, GPIO_FUNC_PWM);
     uint slice_num = pwm_gpio_to_slice_num(conf.gpio);
-    pwm_set_wrap(slice_num, 12000);
+    pwm_set_wrap(slice_num, 12000); // Sets the 
     pwm_set_enabled(slice_num, true);
 
     gpio_init(conf.get_gate_pin());
@@ -216,7 +216,7 @@ void Core1::uart_clk_handler()
     if (clk_counter >= 24)
     {
         printf("CLK, QUARTER NOTE\n");
-        common.blink_led(1, LED_DELAY_MS);
+        // common.blink_led(1, LED_DELAY_MS);
         clk_counter = 0;
     }
 }
@@ -225,6 +225,13 @@ void Core1::output_cv(CV_output cv_out)
 {
     printf("Outputting Note %d Gate %d on GPIO %d Exp %fV Amplified %fV\n", cv_out.note, cv_out.gate_active, cv_out.gpio, VOLT_PER_SEMITONE_OUT * (double)cv_out.note, (VOLT_PER_SEMITONE_OUT * (double)cv_out.note) * OPAMP_FACTOR);
     // TODO: Self-adjusting offset to get as close as possible to 1v/oct?
-    pwm_set_gpio_level(cv_out.gpio, cv_out.note * 100);
+    if (cv_out.gate_active)
+        pwm_set_gpio_level(cv_out.gpio, cv_out.note * 100);
+    else
+        pwm_set_gpio_level(cv_out.gpio, 0);
+
+    // TODO: A setting for retrigger. 
+    // Change the voltage regardless of gate position, but keep the gate open as long as any gate is open
+
     gpio_put(cv_out.get_gate_pin(), cv_out.gate_active);
 }
