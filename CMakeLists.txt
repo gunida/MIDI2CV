@@ -54,6 +54,8 @@ target_link_libraries(Midi2CV
         hardware_irq
         hardware_uart
         hardware_pio
+        hardware_adc
+        hardware_dma
         )
 
 # Add the standard include files to the build

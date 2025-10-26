@@ -33,23 +33,40 @@ typedef enum
 
 typedef struct
 {
+    /// @brief The current state of this analysis object
     MIDIMSG_STATE state;
+
+    /// @brief This will be interpreted as a @see MIDI_MSG_TYPE
     unsigned char type;
+
+    /// @brief MIDI Channel, 0-15
     uint8_t channel;
 } MIDI_event_analysis;
 
 typedef struct
 {
+    /// @brief this will be interpreted as a @see MIDI_MSG_TYPE
     unsigned char type;
+
+    /// @brief MIDI Channel, 0-15
     uint channel;
+
+    /// @brief MIDI messages are up to 4 bytes long
     uint8_t data[4];
 } MIDI_event;
 
 typedef struct
 {
+    /// @brief GPIO pin number
     uint gpio;
+
+    /// @brief MIDI Channel, 0-15
     uint channel;
+
+    /// @brief MIDI Note number 0-120
     uint note;
+
+    /// @brief Indicates if the output gate should be active or not
     bool gate_active;
 
     uint get_gate_pin()
@@ -71,11 +88,14 @@ private:
     void rx_handler();
     int8_t read_uart_rx();
     void uart_clk_handler();
-    void midi_msg_handler(MIDI_event *midi_event);
+    CV_output midi_msg_handler(MIDI_event *midi_event);
     void finish_analysis(MIDI_event_analysis *analysis, MIDI_event *midi_event);
 
     void setup_output_pin(CV_output conf);
     void output_cv(CV_output cv_out);
+    void run_calibration(MIDI_event midi_event);
+    int getOutputVoltageCorrection(float desired_voltage);
+    void sample(uint8_t *capture_buf, int adc_channel);
 
     static void rx_handler_ptr()
     {

@@ -1,10 +1,27 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
 
+#define VOLT_MAX 3.3f // Maximum input voltage
+
 #define LED_DELAY_MS 80
-#define VOLT_PER_SEMITONE 1.0 / 12.0
-#define VOLT_PER_SEMITONE_OUT 3.3 / 120.0
-#define OPAMP_FACTOR 1 / 3.3 * 10
+#define VOLT_PER_SEMITONE (1.0 / 12.0)
+#define VOLT_PER_SEMITONE_OUT (3.3 / 120.0)
+#define OPAMP_R_FEEDBACK_OHM 99600.0
+#define OPAMP_R_GAIN_OHM 51000.0
+#define OPAMP_GAIN_FACTOR 3 // (OPAMP_R_FEEDBACK_OHM / OPAMP_R_GAIN_OHM + 1) // = ~3V
+
+// set this to determine sample rate
+// 96     = 500,000 Hz
+// 960   = 50,000 Hz
+// 9600  = 5,000 Hz
+#define FSAMP 5000 // Hz
+#define CLOCK_DIV (48000000 / FSAMP)
+#define ADC_CAPTURE_CHANNEL 0 // 26 is added to this sometimes don't worry about it :)
+
+// BE CAREFUL: anything over about 9000 here will cause things
+// to silently break. The code will compile and upload, but due
+// to memory issues nothing will work properly
+#define NSAMP 20
 
 class Common
 {

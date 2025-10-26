@@ -36,8 +36,6 @@ Common common;
 // Checks for GPIO buttons, config
 void core0_entry()
 {
-
-    sleep_ms(500);
     absolute_time_t current_time;
     absolute_time_t prev_time;
     while (1)
@@ -116,16 +114,6 @@ void core0_setup()
     gpio_set_irq_callback(&gpio_callback);
     irq_set_enabled(IO_IRQ_BANK0, true);
     // END Config button setup
-
-    // // Output setup
-    // for (int i = 0; i < 16; i++)
-    // {
-    //     gpio_set_function(6 + i, GPIO_FUNC_PWM);
-    //     uint slice_num = pwm_gpio_to_slice_num(i);
-    //     pwm_set_phase_correct(slice_num, false);
-    //     pwm_set_wrap(slice_num, 12000);
-    //     pwm_set_enabled(slice_num, true);
-    // }
 
     sleep_ms(1000);
     printf("Started up!\n");

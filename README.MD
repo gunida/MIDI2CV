@@ -35,3 +35,14 @@ The signal is then amplified ~3x by the Op Amp configured as a noninverting ampl
 ## Optocoupler
 MIDI through optocoupler into Pico\
 Under construction...
+
+### MIDI cable input
+This is a MIDI cable
+```
+/         \
+| o     o |
+|  1 o 2  |
+\         /
+```
+1 goes through a 220 Ohm resistor to pin 2 of the Optocoupler\
+2 goes directly to pin 3 of the Optocoupler
