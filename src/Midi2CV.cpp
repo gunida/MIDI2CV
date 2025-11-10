@@ -8,7 +8,7 @@
 #include "Midi2CV.h"
 #include "core1.h"
 
-#define CFG_BUTTON_GPIO 0
+#define CFG_BUTTON_GPIO 16
 
 #define TIME_IN_MS_TO_ENTER_CONFIG 2000
 

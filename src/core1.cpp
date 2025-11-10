@@ -10,7 +10,7 @@
 #include "common.h"
 #include "core1.h"
 
-#define TEST_MODE 1
+#define TEST_MODE 0
 
 Core1 *Core1::global_instance = nullptr;
 
@@ -24,6 +24,10 @@ uint8_t cap_buf[NSAMP];
 const float conversion_factor = VOLT_MAX / (1 << 8); // 256 bit, for DMA ADC conversion
 
 int output_voltage_correction = 0;
+
+int OUTPUTS_PWM[8] = { 0, 2, 4, 6, 8, 10, 12, 14 };
+int OUTPUTS_GATE[8] = { 1, 3, 5, 7, 9, 11, 13, 15 };
+int OUTPUTS_CHN[8] = { 0, 1, 2, 3, 4, 5, 6, 7 };
 
 Core1::Core1()
 {
@@ -96,7 +100,7 @@ void Core1::setup()
     // TODO: Configure outputs properly
     mock_output_config();
 
-    printf("Mocked output pin GPIO: %d \n", outputs[0].gpio);
+    printf("Mocked output pin GPIO: %d \n", outputs[0].gpio_pwm);
 
     // GPIO setup(outputs)
     for (size_t i = 0; i < NUM_OUTPUTS; i++)
@@ -111,8 +115,9 @@ void Core1::mock_output_config()
 {
     for (size_t i = 0; i < NUM_OUTPUTS; i++)
     {
-        outputs[i].channel = 7;
-        outputs[i].gpio = FIRST_OUTPIT_PIN + i; // TODO: Offset pins when NUM_OUTPUTS > 1
+        outputs[i].gpio_pwm = OUTPUTS_PWM[i]; 
+        outputs[i].gpio_gate = OUTPUTS_GATE[i]; 
+        outputs[i].channel = OUTPUTS_CHN[i]; 
         outputs[i].note = 0;
         outputs[i].gate_active = false;
     }
@@ -120,14 +125,14 @@ void Core1::mock_output_config()
 
 void Core1::setup_output_pin(CV_output conf)
 {
-    printf("Setting up output pin %u\n", conf.gpio);
-    gpio_set_function(conf.gpio, GPIO_FUNC_PWM);
-    uint slice_num = pwm_gpio_to_slice_num(conf.gpio);
+    printf("Setting up output pin %u\n", conf.gpio_pwm);
+    gpio_set_function(conf.gpio_pwm, GPIO_FUNC_PWM);
+    uint slice_num = pwm_gpio_to_slice_num(conf.gpio_pwm);
     pwm_set_wrap(slice_num, 12000); // Pico PWM runs at 10.43 kHz when setting the wrap of the PWM to 12000
     pwm_set_enabled(slice_num, true);
 
-    gpio_init(conf.get_gate_pin());
-    gpio_set_dir(conf.get_gate_pin(), GPIO_OUT);
+    gpio_init(conf.gpio_gate);
+    gpio_set_dir(conf.gpio_gate, GPIO_OUT);
 }
 
 void Core1::run()
@@ -231,7 +236,7 @@ void Core1::run_calibration(MIDI_event midi_event)
             midi_event.data[1] = 0x40;
             CV_output output = midi_msg_handler(&midi_event);
 
-            float exp_voltage = VOLT_PER_SEMITONE_OUT * (double)output.note;
+            float exp_voltage = (VOLT_PER_SEMITONE_OUT * (double)output.note) * OPAMP_GAIN_FACTOR;
             int correction = getOutputVoltageCorrection(exp_voltage);
             output_voltage_correction = correction;
             sum_correction += correction;
@@ -252,6 +257,8 @@ void Core1::run_calibration(MIDI_event midi_event)
 void Core1::finish_analysis(MIDI_event_analysis *analysis, MIDI_event *midi_event)
 {
     midi_msg_handler(midi_event);
+
+    // Reset the analysis and midi_event objects
     analysis->state = START_ANALYSIS;
     analysis->channel = 0;
     analysis->type = 0;
@@ -286,10 +293,14 @@ void Core1::rx_handler()
 CV_output Core1::midi_msg_handler(MIDI_event *midi_event)
 {
     CV_output out;
-    if (midi_event->channel > NUM_OUTPUTS - 1) // Error prevention until I can support 8 pwm outputs
-        return out;
+    int output_idx = -1;
+    for (size_t i = 0; i < NUM_OUTPUTS; i++)
+    {
+        if (OUTPUTS_CHN[i] == midi_event->channel)
+            output_idx = i;
+    }
 
-    out = outputs[midi_event->channel];
+    out = outputs[output_idx];
 
     switch (midi_event->type)
     {
@@ -332,16 +343,16 @@ void Core1::output_cv(CV_output cv_out)
 {
     float exp_voltage = VOLT_PER_SEMITONE_OUT * (double)cv_out.note;
     float exp_amped_voltage = (VOLT_PER_SEMITONE_OUT * (double)cv_out.note) * OPAMP_GAIN_FACTOR;
-    if (cv_out.gate_active)
-        printf("Outputting Note %d Gate %d on GPIO %d Exp %fV Amplified %fV\n", cv_out.note, cv_out.gate_active, cv_out.gpio, exp_voltage, exp_amped_voltage);
+    
+    printf("Outputting Note %d on GPIO %d and Gate %d on GPIO %d Exp %fV Amplified %fV\n", cv_out.note, cv_out.gpio_pwm, cv_out.gate_active, cv_out.gpio_gate, exp_voltage, exp_amped_voltage);
 
-    pwm_set_gpio_level(cv_out.gpio, cv_out.note * 100 + output_voltage_correction);
-    getOutputVoltageCorrection(exp_voltage);
+    pwm_set_gpio_level(cv_out.gpio_pwm, cv_out.note * 100 + output_voltage_correction);
+    // getOutputVoltageCorrection(exp_voltage);
 
-    // TODO: A setting for retrigger.
-    // Change the voltage regardless of gate position, but keep the gate open as long as any gate is open
+    // TODO: Add a setting for retrigger.
+    // Change the voltage regardless of gate position, but keep the gate open as long as any gate is open on the channel
 
-    gpio_put(cv_out.get_gate_pin(), cv_out.gate_active);
+    gpio_put(cv_out.gpio_gate, cv_out.gate_active);
 }
 #pragma endregion
 

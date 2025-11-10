@@ -9,7 +9,7 @@
 #define BUFFER_SIZE 128
 
 #define FIRST_OUTPIT_PIN 16
-#define NUM_OUTPUTS 1
+#define NUM_OUTPUTS 2
 
 typedef enum
 {
@@ -57,8 +57,11 @@ typedef struct
 
 typedef struct
 {
-    /// @brief GPIO pin number
-    uint gpio;
+    /// @brief GPIO pin number for PWM output
+    uint gpio_pwm;
+
+    /// @brief GPIO pin number for Gate output
+    uint gpio_gate;
 
     /// @brief MIDI Channel, 0-15
     uint channel;
@@ -69,10 +72,6 @@ typedef struct
     /// @brief Indicates if the output gate should be active or not
     bool gate_active;
 
-    uint get_gate_pin()
-    {
-        return gpio + NUM_OUTPUTS;
-    }
 } CV_output;
 
 class Core1
