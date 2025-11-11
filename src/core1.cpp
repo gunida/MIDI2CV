@@ -25,9 +25,9 @@ const float conversion_factor = VOLT_MAX / (1 << 8); // 256 bit, for DMA ADC con
 
 int output_voltage_correction = 0;
 
-int OUTPUTS_PWM[8] = { 0, 2, 4, 6, 8, 10, 12, 14 };
-int OUTPUTS_GATE[8] = { 1, 3, 5, 7, 9, 11, 13, 15 };
-int OUTPUTS_CHN[8] = { 0, 1, 2, 3, 4, 5, 6, 7 };
+int OUTPUTS_PWM[8] = {0, 2, 4, 6, 8, 10, 12, 14};
+int OUTPUTS_GATE[8] = {1, 3, 5, 7, 9, 11, 13, 15};
+int OUTPUTS_CHN[8] = {0, 1, 2, 3, 4, 5, 6, 7};
 
 Core1::Core1()
 {
@@ -115,9 +115,9 @@ void Core1::mock_output_config()
 {
     for (size_t i = 0; i < NUM_OUTPUTS; i++)
     {
-        outputs[i].gpio_pwm = OUTPUTS_PWM[i]; 
-        outputs[i].gpio_gate = OUTPUTS_GATE[i]; 
-        outputs[i].channel = OUTPUTS_CHN[i]; 
+        outputs[i].gpio_pwm = OUTPUTS_PWM[i];
+        outputs[i].gpio_gate = OUTPUTS_GATE[i];
+        outputs[i].channel = OUTPUTS_CHN[i];
         outputs[i].note = 0;
         outputs[i].gate_active = false;
     }
@@ -192,23 +192,24 @@ void Core1::run()
 
                 midi_event.channel = channel;
                 midi_event.type = voice_category;
+                midi_event.data[0] = msg;
                 break;
             case WAIT_DATA_1:
                 if (analysis.type == PRGM_CHANGE || analysis.type == CHN_PRESSURE) // These types have a data length of 1 byte
                 {
-                    midi_event.data[0] = msg;
+                    midi_event.data[1] = msg;
                     analysis.state = FINISHED_ANALYSIS;
                     finish_analysis(&analysis, &midi_event);
                 }
                 else // The rest have a data length of 2 bytes
                 {
-                    midi_event.data[0] = msg;
+                    midi_event.data[1] = msg;
                     analysis.state = WAIT_DATA_2;
                     break;
                 }
                 break;
             case WAIT_DATA_2:
-                midi_event.data[1] = msg;
+                midi_event.data[2] = msg;
                 analysis.state = FINISHED_ANALYSIS;
                 finish_analysis(&analysis, &midi_event);
                 break;
@@ -219,15 +220,15 @@ void Core1::run()
     }
 }
 
-/// @brief Checks offset between octave 0 and 8 a couple of times 
-/// @param midi_event 
+/// @brief Checks offset between octave 0 and 8 a couple of times
+/// @param midi_event
 void Core1::run_calibration(MIDI_event midi_event)
 {
     int sum_correction = 0;
     const int num_passes = 8;
     for (size_t i = 0; i < num_passes / 2; i++)
     {
-        for (int j = 0; j < 10; j+= 8)
+        for (int j = 0; j < 10; j += 8)
         {
             midi_event.channel = 0; // this is the default
             midi_event.type = NOTE_ON;
@@ -293,6 +294,10 @@ void Core1::rx_handler()
 CV_output Core1::midi_msg_handler(MIDI_event *midi_event)
 {
     CV_output out;
+
+    if (midi_event->type != NOTE_ON && midi_event->type != NOTE_OFF)
+        return out;
+
     int output_idx = -1;
     for (size_t i = 0; i < NUM_OUTPUTS; i++)
     {
@@ -302,27 +307,20 @@ CV_output Core1::midi_msg_handler(MIDI_event *midi_event)
 
     out = outputs[output_idx];
 
-    switch (midi_event->type)
-    {
-    case NOTE_ON:
+    // if velocity is greater than 0, gate should be active
+    if (midi_event->data[2] > 0)
         (&out)->gate_active = true;
-        break;
-    case NOTE_OFF:
+    else
         (&out)->gate_active = false;
-        break;
-    default:
-        return out;
-        break;
-    }
 
     if (out.note >= 0 && out.note <= 127)
     {
-
-        (&out)->note = midi_event->data[0];
-        common.print_midi_msg(midi_event->type | midi_event->channel, midi_event->data[0], midi_event->data[1]);
+        (&out)->note = midi_event->data[1];
+        common.print_midi_msg(midi_event->data[0], midi_event->data[1], midi_event->data[2]);
 
         output_cv(out);
     }
+
     return out;
 }
 
@@ -343,7 +341,7 @@ void Core1::output_cv(CV_output cv_out)
 {
     float exp_voltage = VOLT_PER_SEMITONE_OUT * (double)cv_out.note;
     float exp_amped_voltage = (VOLT_PER_SEMITONE_OUT * (double)cv_out.note) * OPAMP_GAIN_FACTOR;
-    
+
     printf("Outputting Note %d on GPIO %d and Gate %d on GPIO %d Exp %fV Amplified %fV\n", cv_out.note, cv_out.gpio_pwm, cv_out.gate_active, cv_out.gpio_gate, exp_voltage, exp_amped_voltage);
 
     pwm_set_gpio_level(cv_out.gpio_pwm, cv_out.note * 100 + output_voltage_correction);
@@ -376,6 +374,7 @@ void Core1::sample(uint8_t *capture_buf, int adc_channel)
     dma_channel_wait_for_finish_blocking(dma_chan);
 }
 
+/// @deprecated
 int Core1::getOutputVoltageCorrection(float desired_voltage)
 {
     sleep_ms(10); // sleep a little to let the CV stabilize

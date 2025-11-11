@@ -10,7 +10,7 @@
 #define OPAMP_R_GAIN_OHM 51000.0
 
 // TODO: output should account for the gain factor not being exactly 3
-#define OPAMP_GAIN_FACTOR 3 // (OPAMP_R_FEEDBACK_OHM / OPAMP_R_GAIN_OHM + 1) // = ~3V
+#define OPAMP_GAIN_FACTOR (OPAMP_R_FEEDBACK_OHM / OPAMP_R_GAIN_OHM + 1) // = ~3V
 
 // set this to determine sample rate
 // 96     = 500,000 Hz
