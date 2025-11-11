@@ -46,10 +46,16 @@ typedef struct
 typedef struct
 {
     /// @brief this will be interpreted as a @see MIDI_MSG_TYPE
-    unsigned char type;
+    unsigned char type() {
+        //printf("MIDI MESSAGE TYPE: %d\r\n", data[0] & 0xF0);
+        return data[0] & 0xF0;
+    }
 
     /// @brief MIDI Channel, 0-15
-    uint channel;
+    uint channel() {
+        //printf("MIDI MESSAGE CHAN: %d\r\n", data[0] & 0x0F);
+        return data[0] & 0x0F;
+    }
 
     /// @brief MIDI messages are up to 4 bytes long
     uint8_t data[4];

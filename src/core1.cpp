@@ -10,7 +10,7 @@
 #include "common.h"
 #include "core1.h"
 
-#define TEST_MODE 0
+#define TEST_MODE 1
 
 Core1 *Core1::global_instance = nullptr;
 
@@ -145,23 +145,32 @@ void Core1::run()
 
     while (1)
     {
+        for (size_t i = 0; i < 12; i++)
+        {
+            midi_event.data[0] = 0x90;
+            midi_event.data[1] = i + 12 + 36;
+            midi_event.data[2] = 0x60;
+            midi_msg_handler(&midi_event);
+            sleep_ms(250);
 
-        run_calibration(midi_event);
+            midi_event.data[0] = 0x80;
+            midi_event.data[2] = 0x00;
+            midi_msg_handler(&midi_event);
+            common.blink_led(1, 100);
+        }
 
         for (size_t i = 0; i < 12; i++)
         {
-            midi_event.channel = 0; // this is the default
-            midi_event.type = NOTE_ON;
-
-            midi_event.data[0] = i + 12 + 36;
-            midi_event.data[1] = 0x40;
+            midi_event.data[0] = 0x91;
+            midi_event.data[1] = i + 12 + 36;
+            midi_event.data[2] = 0x60;
             midi_msg_handler(&midi_event);
+            sleep_ms(250);
 
-            common.blink_led(1, 2000);
-            midi_event.type = NOTE_OFF;
+            midi_event.data[0] = 0x81;
+            midi_event.data[2] = 0x00;
             midi_msg_handler(&midi_event);
-            common.blink_led(1, 250);
-            common.blink_led(3, 50);
+            common.blink_led(1, 100);
         }
     }
 
@@ -181,17 +190,16 @@ void Core1::run()
             switch (analysis.state)
             {
             case START_ANALYSIS:
-                voice_category = msg & 0xF0;
-                channel = msg & 0x0F;
                 if ((msg & 0x80) == 0) // all types in MIDI_MSG_TYPE have 0x80 set to 1. This ignores the rest.
                     break;
+
+                voice_category = msg & 0xF0;
+                channel = msg & 0x0F;
 
                 analysis.type = voice_category;
                 analysis.channel = channel;
                 analysis.state = WAIT_DATA_1;
 
-                midi_event.channel = channel;
-                midi_event.type = voice_category;
                 midi_event.data[0] = msg;
                 break;
             case WAIT_DATA_1:
@@ -230,11 +238,9 @@ void Core1::run_calibration(MIDI_event midi_event)
     {
         for (int j = 0; j < 10; j += 8)
         {
-            midi_event.channel = 0; // this is the default
-            midi_event.type = NOTE_ON;
-
-            midi_event.data[0] = j * 12;
-            midi_event.data[1] = 0x40;
+            midi_event.data[0] = 0x90;
+            midi_event.data[1] = j * 12;
+            midi_event.data[2] = 0x40;
             CV_output output = midi_msg_handler(&midi_event);
 
             float exp_voltage = (VOLT_PER_SEMITONE_OUT * (double)output.note) * OPAMP_GAIN_FACTOR;
@@ -264,8 +270,11 @@ void Core1::finish_analysis(MIDI_event_analysis *analysis, MIDI_event *midi_even
     analysis->channel = 0;
     analysis->type = 0;
 
-    midi_event->channel = 0;
-    midi_event->type = 0;
+    
+    // CHECK: Do i need to reset this? if so, how?
+    //midi_event->data = [4];
+
+
 }
 
 /// @brief UART interrupt handler
@@ -294,29 +303,30 @@ void Core1::rx_handler()
 CV_output Core1::midi_msg_handler(MIDI_event *midi_event)
 {
     CV_output out;
-
-    if (midi_event->type != NOTE_ON && midi_event->type != NOTE_OFF)
-        return out;
+    
+    if (midi_event->type() != NOTE_ON && midi_event->type() != NOTE_OFF)
+    return out;
+    
+    common.print_midi_msg(midi_event->data[0], midi_event->data[1], midi_event->data[2]);
 
     int output_idx = -1;
     for (size_t i = 0; i < NUM_OUTPUTS; i++)
     {
-        if (OUTPUTS_CHN[i] == midi_event->channel)
+        if (OUTPUTS_CHN[i] == midi_event->channel())
             output_idx = i;
     }
 
     out = outputs[output_idx];
 
     // if velocity is greater than 0, gate should be active
-    if (midi_event->data[2] > 0)
-        (&out)->gate_active = true;
-    else
+    if (midi_event->data[2] == 0 || midi_event->type() == NOTE_OFF)
         (&out)->gate_active = false;
+    else
+        (&out)->gate_active = true;
 
     if (out.note >= 0 && out.note <= 127)
     {
         (&out)->note = midi_event->data[1];
-        common.print_midi_msg(midi_event->data[0], midi_event->data[1], midi_event->data[2]);
 
         output_cv(out);
     }
