@@ -10,7 +10,7 @@
 #include "common.h"
 #include "core1.h"
 
-#define TEST_MODE 1
+#define TEST_MODE 0
 
 Core1 *Core1::global_instance = nullptr;
 

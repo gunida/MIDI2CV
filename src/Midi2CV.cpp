@@ -86,7 +86,7 @@ int main()
         multicore_launch_core1(core1_entry);
 
         set_application_state(PLAY);
-        core0_entry();
+        //core0_entry();
 
         printf("Exiting main\n");
     }

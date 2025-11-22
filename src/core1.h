@@ -1,15 +1,14 @@
 #include "../inc/buffer.h"
 
+#define NUM_OUTPUTS 4
 #define UART_ID uart1
-#define UART_RX_PIN 5
+#define UART_RX_PIN 9
 #define BAUD_RATE 31250
 #define DATA_BITS 8
 #define STOP_BITS 1
 #define PARITY UART_PARITY_NONE
 #define BUFFER_SIZE 128
 
-#define FIRST_OUTPIT_PIN 16
-#define NUM_OUTPUTS 2
 
 typedef enum
 {
